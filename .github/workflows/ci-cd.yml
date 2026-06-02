@@ -1,0 +1,26 @@
+name: Node CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to DockerHub (or ACR later)
+        run: echo "Login step here"
+
+      - name: Build Docker image
+        run: docker build -t node-aks-app .
+
+      - name: Run tests (optional)
+        run: echo "No tests yet"
+
+      - name: Done
+        run: echo "Build completed"
