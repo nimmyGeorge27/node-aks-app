@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: node-app
-        image: nginx
+        image: nimmyacr.azurecr.io/node-app:v1
         ports:
         - containerPort: 3000
 
