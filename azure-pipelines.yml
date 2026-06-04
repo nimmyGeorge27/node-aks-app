@@ -11,22 +11,18 @@ variables:
 
 steps:
 
-# Install Node
 - task: NodeTool@0
   inputs:
     versionSpec: '18.x'
 
-# Install dependencies
 - script: |
     npm install
   displayName: 'Install Dependencies'
 
-# Build Docker image
 - script: |
     docker build -t $(acrLoginServer)/$(imageName):$(Build.BuildId) .
   displayName: 'Docker Build'
 
-# Login to Azure (for ACR access)
 - task: AzureCLI@2
   inputs:
     azureSubscription: 'azure-aks-connection'
@@ -35,7 +31,6 @@ steps:
     inlineScript: |
       az acr login --name $(acrName)
 
-# Push image to ACR
 - script: |
     docker push $(acrLoginServer)/$(imageName):$(Build.BuildId)
   displayName: 'Push to ACR'
