@@ -1,36 +1,120 @@
 trigger:
 - main
 
-pool:
-  vmImage: ubuntu-latest
-
 variables:
-  imageName: node-aks-app
-  acrName: nimmyacr
-  acrLoginServer: nimmyacr.azurecr.io
+  imageName: node-app
+  acrName: nimmyacr.azurecr.io
+  dockerTag: $(Build.BuildId)
+  k8sManifest: deployment.yaml
 
-steps:
+stages:
 
-- task: UseNode@1
-  inputs:
-    versionSpec: '18.x'
+# =========================
+# STAGE 1: BUILD & PUSH IMAGE
+# =========================
+- stage: Build
+  displayName: Build and Push Docker Image
+  jobs:
+  - job: Build
+    pool:
+      vmImage: ubuntu-latest
 
-- script: |
-    npm install
-  displayName: 'Install Dependencies'
+    steps:
 
-- script: |
-    docker build -t $(acrLoginServer)/$(imageName):$(Build.BuildId) .
-  displayName: 'Docker Build'
+    # Install Node.js
+    - task: UseNode@1
+      inputs:
+        version: '18.x'
 
-- task: AzureCLI@2
-  inputs:
-    azureSubscription: 'azure-aks-connection'
-    scriptType: bash
-    scriptLocation: inlineScript
-    inlineScript: |
-      az acr login --name $(acrName)
+    # Install dependencies
+    - script: |
+        npm install
+      displayName: "Install Dependencies"
 
-- script: |
-    docker push $(acrLoginServer)/$(imageName):$(Build.BuildId)
-  displayName: 'Push to ACR'
+    # Build Docker image
+    - script: |
+        docker build -t $(acrName)/$(imageName):$(dockerTag) .
+      displayName: "Build Docker Image"
+
+    # Login to ACR
+    - task: AzureCLI@2
+      inputs:
+        azureSubscription: 'azure-aks-connection'
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          az acr login --name nimmyacr
+
+    # Push Docker image
+    - script: |
+        docker push $(acrName)/$(imageName):$(dockerTag)
+      displayName: "Push Image to ACR"
+
+
+# =========================
+# STAGE 2: UPDATE YAML USING sed
+# =========================
+- stage: UpdateManifest
+  displayName: Update Kubernetes Manifest
+  dependsOn: Build
+
+  jobs:
+  - job: Update
+    pool:
+      vmImage: ubuntu-latest
+
+    steps:
+
+    - checkout: self
+
+    # Update image tag using sed
+    - script: |
+        echo "Updating deployment.yaml with new image tag"
+
+        sed -i "s|image:.*|image: $(acrName)/$(imageName):$(dockerTag)|g" $(k8sManifest)
+
+        echo "Updated YAML:"
+        cat $(k8sManifest)
+      displayName: "Update image tag using sed"
+
+    # Commit updated manifest (GitOps style)
+    - script: |
+        git config user.email "pipeline@azure.com"
+        git config user.name "azure-pipeline"
+
+        git add $(k8sManifest)
+        git commit -m "Update image tag to $(dockerTag)"
+        git push origin main
+      displayName: "Commit updated manifest"
+
+
+# =========================
+# STAGE 3: DEPLOY TO AKS
+# =========================
+- stage: Deploy
+  displayName: Deploy to AKS
+  dependsOn: UpdateManifest
+
+  jobs:
+  - job: Deploy
+    pool:
+      vmImage: ubuntu-latest
+
+    steps:
+
+    - task: AzureCLI@2
+      inputs:
+        azureSubscription: 'azure-aks-connection'
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+
+          echo "Getting AKS credentials..."
+
+          az aks get-credentials \
+            --resource-group YOUR-RG \
+            --name YOUR-AKS-CLUSTER
+
+          echo "Deploying to AKS..."
+
+          kubectl apply -f $(k8sManifest)
