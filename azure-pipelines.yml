@@ -4,15 +4,38 @@ trigger:
 pool:
   vmImage: ubuntu-latest
 
+variables:
+  imageName: node-aks-app
+  acrName: nimmyacr
+  acrLoginServer: nimmyacr.azurecr.io
+
 steps:
+
+# Install Node
 - task: NodeTool@0
   inputs:
     versionSpec: '18.x'
 
+# Install dependencies
 - script: |
     npm install
   displayName: 'Install Dependencies'
 
+# Build Docker image
 - script: |
-    echo "Build successful"
-  displayName: 'Build Application'
+    docker build -t $(acrLoginServer)/$(imageName):$(Build.BuildId) .
+  displayName: 'Docker Build'
+
+# Login to Azure (for ACR access)
+- task: AzureCLI@2
+  inputs:
+    azureSubscription: 'azure-aks-connection'
+    scriptType: bash
+    scriptLocation: inlineScript
+    inlineScript: |
+      az acr login --name $(acrName)
+
+# Push image to ACR
+- script: |
+    docker push $(acrLoginServer)/$(imageName):$(Build.BuildId)
+  displayName: 'Push to ACR'
