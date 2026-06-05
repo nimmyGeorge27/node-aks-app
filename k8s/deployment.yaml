@@ -18,6 +18,6 @@ spec:
     spec:
       containers:
       - name: node-app
-        image: nimmyacr.azurecr.io/node-app:22
+        image: nimmyacr.azurecr.io/node-app:23
         ports:
         - containerPort: 3000
