@@ -5,20 +5,23 @@ variables:
   imageName: node-app
   acrName: nimmyacr.azurecr.io
   dockerTag: $(Build.BuildId)
-  k8sManifest: k8s/deployment.yaml
 
 stages:
 
-# =========================
-# BUILD & PUSH IMAGE
-# =========================
+# ==================================
+# STAGE 1 - BUILD & PUSH IMAGE
+# ==================================
 - stage: Build
+  displayName: Build and Push Docker Image
+
   jobs:
   - job: Build
     pool:
       vmImage: ubuntu-latest
 
     steps:
+
+    - checkout: self
 
     - task: UseNode@1
       inputs:
@@ -33,6 +36,7 @@ stages:
       displayName: Build Docker Image
 
     - task: AzureCLI@2
+      displayName: Login to ACR
       inputs:
         azureSubscription: 'azure-aks-connection'
         scriptType: bash
@@ -42,17 +46,18 @@ stages:
 
     - script: |
         docker push $(acrName)/$(imageName):$(dockerTag)
-      displayName: Push Image
+      displayName: Push Docker Image
 
 
-# =========================
-# UPDATE MANIFEST USING sed
-# =========================
+# ==================================
+# STAGE 2 - UPDATE MANIFEST
+# ==================================
 - stage: UpdateManifest
+  displayName: Update Kubernetes Manifest
   dependsOn: Build
 
   jobs:
-  - job: Update
+  - job: UpdateManifest
     pool:
       vmImage: ubuntu-latest
 
@@ -60,50 +65,27 @@ stages:
 
     - checkout: self
       persistCredentials: true
+      fetchDepth: 0
 
     - script: |
-        echo "Updating deployment.yaml"
+        echo "Updating image tag in deployment.yaml"
 
-        sed -i "s|image:.*|image: nimmyacr.azurecr.io/node-app:$(Build.BuildId)|g" k8s/deployment.yaml
+        sed -i "s|image:.*|image: $(acrName)/$(imageName):$(dockerTag)|g" k8s/deployment.yaml
 
-        echo "Updated YAML:"
+        echo "Updated deployment.yaml"
+
         cat k8s/deployment.yaml
       displayName: Update image tag using sed
 
     - script: |
-        git config user.email "pipeline@azure.com"
-        git config user.name "azure-pipeline"
+        git config --global user.email "pipeline@azure.com"
+        git config --global user.name "azure-pipeline"
 
         git add k8s/deployment.yaml
 
-        git commit -m "Update image tag to $(Build.BuildId)" || echo "No changes"
+        git commit -m "Update image tag to $(dockerTag)" || echo "No changes to commit"
+
+        git pull origin main --rebase || true
 
         git push origin HEAD:main
       displayName: Commit updated manifest
-
-
-# =========================
-# DEPLOY TO AKS
-# =========================
-- stage: Deploy
-  dependsOn: UpdateManifest
-
-  jobs:
-  - job: Deploy
-    pool:
-      vmImage: ubuntu-latest
-
-    steps:
-
-    - task: AzureCLI@2
-      inputs:
-        azureSubscription: 'azure-aks-connection'
-        scriptType: bash
-        scriptLocation: inlineScript
-        inlineScript: |
-
-          az aks get-credentials \
-            --resource-group YOUR-RG \
-            --name YOUR-AKS-CLUSTER
-
-          kubectl apply -f k8s/deployment.yaml
